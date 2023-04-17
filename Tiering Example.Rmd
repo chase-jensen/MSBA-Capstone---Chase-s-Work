@@ -1,0 +1,123 @@
+---
+title: "Sales Agg"
+author: "Chase Jensen"
+date: "2023-03-30"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(scipen=999)
+
+
+```
+Customer Aggregation Data
+
+```{r}
+library(readxl)
+Customers_Agg <- read_excel("Tiered Data.xlsx")
+Customers_Agg <- head(Customers_Agg, -1) # If total row comes in
+Customers_Agg <- Customers_Agg[Customers_Agg$`Invoice Price` > 0,]
+```
+
+
+Distributions
+
+```{r}
+quantile(Customers_Agg$`Number of Transactions`)
+quantile(Customers_Agg$`Days Since Max`)
+quantile(Customers_Agg$`Invoice Price`)
+
+
+
+```
+Get a distribution of tiers
+
+```{r}
+library(ggplot2)
+ggplot(Customers_Agg, aes(`Tier Average Rounded`)) + geom_bar() + xlab("Tier")
+```
+Now we can subset this data
+
+```{r}
+
+Tier1 <- Customers_Agg[Customers_Agg$`Tier Average Rounded` == 1,]
+Tier2 <- Customers_Agg[Customers_Agg$`Tier Average Rounded` == 2,]
+Tier3 <- Customers_Agg[Customers_Agg$`Tier Average Rounded` == 3,]
+Tier4 <- Customers_Agg[Customers_Agg$`Tier Average Rounded` == 4,]
+```
+
+EDA of Tier 1
+
+```{r}
+ggplot(Tier1, aes(`CUSTOMER_ACTIVITY_CLUSTER_DESCRIPTION`)) + geom_bar() + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+ggplot(Tier2, aes(`CUSTOMER_ACTIVITY_CLUSTER_DESCRIPTION`)) + geom_bar() + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+ggplot(Tier3, aes(`CUSTOMER_ACTIVITY_CLUSTER_DESCRIPTION`)) + geom_bar() + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+ggplot(Tier4, aes(`CUSTOMER_ACTIVITY_CLUSTER_DESCRIPTION`)) + geom_bar() + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+
+```
+
+Prepare Data for Model
+
+```{r}
+str(Customers_Agg)
+```
+
+Variables to Drop:
+- Min and Max posting date
+- All tiers other than the Tier Average
+- Address Zip Code
+- County
+- Geo Lat and Long
+- CUSTOMER_TRADE_CHANNEL_DESCRIPTION2
+
+```{r}
+Customers_Agg = Customers_Agg[, !names(Customers_Agg) %in% c("Min Posting Date", "Max Posting Date", "Transactions Tier", "Recency Tier", "Revenue Tier", "Tier Average", "SALES_OFFICE_DESCRIPTION", "DELIVERY_PLANT_DESCRIPTION", "ON_BOARDING_DATE", "Days from Today to Start", "Grouping", "ADDRESS_ZIP_CODE", "COUNTY", "GEO_LONGITUDE", "GEO_LATITUDE", "CUSTOMER_TRADE_CHANNEL_DESCRIPTION2", "MARKET_DESCRIPTION", "Customer Number")]
+```
+
+Transforming Variables
+
+```{r}
+str(Customers_Agg)
+
+chr_cols <- sapply(Customers_Agg, is.character)
+Customers_Agg[chr_cols] <- lapply(Customers_Agg[chr_cols], as.factor)
+
+Customers_Agg$`Tier Average Rounded` <- as.factor(Customers_Agg$`Tier Average Rounded`)
+
+str(Customers_Agg)
+```
+
+
+
+Split Data Train/Test
+
+```{r Test Train Split}
+library(dplyr)
+
+set.seed(51697)
+
+training <- Customers_Agg %>% 
+  sample_frac(0.8)
+
+testing <- Customers_Agg %>% 
+  anti_join(training)
+
+```
+Start Modeling!
+
+```{r}
+library(caret)
+library(rpart)
+library(rpart.plot)
+
+# dTree <- rpart(`Tier Average Rounded`~., data = training, method = 'class')
+# rpart.plot(dTree)
+
+```
+
+
