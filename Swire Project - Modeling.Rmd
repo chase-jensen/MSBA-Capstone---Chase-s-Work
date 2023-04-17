@@ -1,0 +1,207 @@
+---
+title: "Swire Project - Modeling"
+author: "Chase Jensen"
+date: "2023-03-10"
+output: 
+  html_document:
+    toc: True
+
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(scipen = 999)
+```
+
+
+
+## Introduction
+The purpose of this document is to take a deeper dive into addressing the 
+business problem of Swire Coca-cola, which again is to determine which potential 
+customers will be the most successful. With a method in place to predict the 
+success of customers, Swire will be able to select the best businesses to sell 
+to.
+
+### Models to Explore
+
+In order to assist Swire in identifying successful businesses to work with, it 
+is important to create an accurate and generalizable model to predict which 
+customers will be successful. In terms of modeling we decided to explore the 
+areas of customer segmentation using a clustering algorithm to determine 
+patterns in existing customers and a form of regression to see what variables 
+are significant in predicting customer success, namely Invoice Price, which for
+all intents and purposes can be viewed as revenue.
+
+## Data Preparation and Feature Engineering
+
+```{r libraries, message=FALSE, warning=FALSE}
+library(readxlsb)
+library(readxl)
+library(tidyverse)
+library(ggplot2)
+library(ragtop)
+library(ggmap)
+library(corrplot)
+```
+
+
+```{r Data Prep}
+# Read in the data
+custData <- read_excel("FSOP_Customer_Data_v2.0.xlsx")
+salesData <- read_excel("FSOP_Sales_Data_v2.0.xlsx")
+data = read.csv("combined_data.csv")
+
+
+# Dropping some unneeded columns
+data = data[, !names(data) %in% c("SALES_OFFICE_DESCRIPTION", "DELIVERY_PLANT_DESCRIPTION",
+                                "COUNTY", "CUSTOMER_TRADE_CHANNEL_DESCRIPTION2",
+                                "GEO_LONGITUDE", "GEO_LATITUDE", "ADDRESS_CITY",
+                                "MARKET_DESCRIPTION")]
+
+# Remove the data with invoice price <= 0 (These are most likely returns or damaged goods)
+
+data = data[data$INVOICE_PRICE > 0,]
+
+
+data$MIN_POSTING_DATE <- as.Date(data$MIN_POSTING_DATE)
+data$MAX_POSTING_DATE <- as.Date(data$MAX_POSTING_DATE)
+data$ON_BOARDING_DATE <- as.Date(data$ON_BOARDING_DATE)
+
+chr_cols <- sapply(data, is.character)
+data[chr_cols] <- lapply(data[chr_cols], as.factor)
+
+str(data)
+```
+
+```{r Feature Eng}
+# Calculate the total posting time (Time doing Business with Swire)
+data$TOTAL_POSTING_TIME <- difftime(data$MAX_POSTING_DATE, data$MIN_POSTING_DATE, units = "days")
+fivenum(data$TOTAL_POSTING_TIME)
+mean(data$TOTAL_POSTING_TIME)
+
+```
+
+Below is a graph of the distribution of the new variable, Total Posting Time
+
+```{r Total Posting Time Plot, message=FALSE}
+ggplot(data = data, aes(x = TOTAL_POSTING_TIME)) + geom_histogram()
+```
+
+
+## Summary of Data Preparation and Engineering
+
+Some key data transformations that were made include removing several variables 
+that were redundant. For example, we do not need to know the customers city and
+zip code. This would lead to multicollinearity, which would negatively impact our 
+model performance.
+
+We also removed all instances where Invoice Price (Revenue) was less than $0.00.
+From our understanding, these instances were likely either product returns or
+compensation for damaged goods.
+
+Other key preparation and engineering steps include factoring appropriate 
+variables as well as converting dates to date format. We also created a new 
+variable called Total Posting Time which is the difference between Max and Min
+Posting Time (The most recent and first transaction dates).
+
+Additionally, we combined the sales and customer datasets to house all variables
+in one dataset for potential modeling. This would prove to be problematic,
+which we will discuss later.
+
+
+```{r Corr matrix}
+data_num <- select_if(data, is.numeric)
+d_corr <- cor(data_num)
+corrplot(d_corr, type = "lower", method = "number")
+d_corr > .75
+
+```
+## Data Modeling
+### Customer Clustering
+
+The first approach that was taken was a K-Means hierarchical clustering algorithm.
+We determined it would be valuable to see if there were any pre-existing customer
+clusters that we could observe and potentially get information from.
+
+
+```{r K-Means Hierarchical Cluster}
+library(ggplot2)
+library(factoextra)
+library(cluster)
+
+dist_matrix <- dist(custData, method = "euclidean")
+hc <- hclust(dist_matrix, method = "ward.D2")
+
+# Cut the tree at different heights to create different clustering solutions
+cutree.res <- list()
+for (i in 2:10) {
+  cutree.res[[i]] <- cutree(hc, k = i)
+}
+
+# Compute the silhouette width for each clustering solution
+sil.width <- sapply(cutree.res, function(x) {
+  if (length(unique(x)) > 1) {
+    cluster::silhouette(x, dist_matrix)
+  } else {
+    NA
+  }
+})
+
+sil.width <- as.data.frame(sil.width)
+# Plot the silhouette width for each clustering solution
+fviz_nbclust(sil.width, FUNcluster = hcut)
+
+```
+
+```{Prune to 10 Clusters}
+groups <- cutree(hc, k = 10)
+table(groups)
+
+```
+
+As you can see from this output, it's a mess.
+
+
+### Regression
+
+In terms of predictive modeling, we started with a simple linear regression as 
+a baseline. Initially, we tried to create a model off of the entire joined
+dataset, but found that the output was too computationally expensive and large
+to be feasible. We turned our attention to a regression on only the sales data.
+
+
+
+```{r Sales Data LR}
+str(salesData)
+
+# Remove and restructure variables for LR
+salesData$TOTAL_POSTING_TIME <- as.numeric(difftime(salesData$MAX_POSTING_DATE, salesData$MIN_POSTING_DATE, units = "days"))
+
+salesData = salesData[, !names(salesData) %in% c("MAX_POSTING_DATE", "MIN_POSTING_DATE", "CUSTOMER_NUMBER_BLINDED")]
+
+chr_cols_sales <- sapply(salesData, is.character)
+salesData[chr_cols_sales] <- lapply(salesData[chr_cols_sales], as.factor)
+
+salesData = salesData[salesData$INVOICE_PRICE > 0,]
+
+# salesModel <- lm(INVOICE_PRICE ~., salesData)
+
+# print(summary(salesModel)) 
+# There may be too many factors here. Potentially reduce number thought
+# Additional feature engineering.
+
+
+```
+
+When attempting to create a linear regression on the Sales Data, we run into
+memory issues. We could potentially avoid this by allocating more memory to 
+RStudio, but for now, this is an obstacle that we will have to work around.
+
+Additionally, there are are potential concerns that could arise from trying
+to model the Invoice Price (Profit). From above, we can see that there is a lot
+of evidence for multicollinearity, so using sales data to model, well, sales
+could be problematic.
+
+
+

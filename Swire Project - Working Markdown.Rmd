@@ -1,0 +1,268 @@
+---
+title: "Working Document"
+author: "Chase Jensen"
+date: "2023-02-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(scipen=999)
+```
+
+# 1. Business Problem Statement
+
+
+With 10% of their business coming from the performance of local businesses, 
+Swire Coca-cola is looking for a way to determine which potential customers will
+be the most successful. With a method in place to predict the success of 
+customers, Swire will be able to select the best businesses to sell too. 
+This will allow for Swire to set prices that benefit both themselves and the 
+businesses and also maximize potential ROI. There are not any immediate success 
+metrics that we can measure, so determining success will take some time. 
+
+However, after a certain amount of time, success can be determined by the 
+revenue and traffic the store brings in. 
+The approach will revolve around analyzing the customer sentiment 
+(online reviews), sales volume, and years of operation of other Swire businesses 
+in a selected area. The analysis will ultimately result in a predictive model 
+that will identify favorable business targets. Additionally, providing an 
+initial list of potential targets for Swire. The project will be completed by 
+Hobeen Moon, Joey Chen, Nik Sassen, and Chase Jensen with a delivery date of 
+April 12th. Specific milestones will include the identification of the business 
+problem, exploratory data analysis, building of the model, evaluation of the 
+model, and final results in the form of a presentation.
+
+# 2. Analytic Objective
+
+
+The objective of this analysis is to is to create a model that is able to 
+accurately predict the probability that a potential customer will be successful.
+While the actual method of model creation is still to be determined, the 
+outcome will be the same. We will determine this a successful analysis if we 
+can create a model that can determine a likelihood for a business to succeed 
+with high accuracy that can then be given over to the client for implementation.
+
+# 3. EDA Questions
+
+
+What do the distributions of sales numbers look like; namely Revenue, Discount, and Quantities?
+What customer demographics are the most common? Where are they most likely to be located? What types of businesses are there? 
+What are these customers purchasing? How often are they purchasing?
+
+
+# 4. Data Exploration
+
+```{r Data Reading and Libraries, message=FALSE, warning=FALSE}
+library(readxlsb)
+library(readxl)
+library(tidyverse)
+library(ggplot2)
+library(ragtop)
+library(ggmap)
+
+dataDict <- read_excel("Data Dictionary.xlsx")
+swireTerm <- read_excel("Swire Terminology.xlsx")
+custData <- read_excel("FSOP_Customer_Data_v2.0.xlsx")
+salesData <- read_excel("FSOP_Sales_Data_v2.0.xlsx")
+
+```
+
+
+Customer Data Feature Engineering
+```{r FE Cust Data}
+# Creating a column for State
+custData$STATE <- substr(custData$SALES_OFFICE_DESCRIPTION, 
+                         nchar(custData$SALES_OFFICE_DESCRIPTION) - 1, 
+                         nchar(custData$SALES_OFFICE_DESCRIPTION))
+```
+
+
+
+
+# EDA - Store Data
+
+Looking at the structure of the data
+```{r EDA for Customer Data}
+head(custData)
+str(custData)
+
+# Count of NA's
+sapply(custData, function(x) sum(is.na(x))) 
+# There are only 2 NA's in the entire Customer Dataset, namely County info
+
+
+# Let's make some tables
+table(custData$CUSTOMER_ACTIVITY_CLUSTER_DESCRIPTION) # Customer Activities
+table(custData$CUSTOMER_TRADE_CHANNEL_DESCRIPTION) # Trade
+table(custData$CUSTOMER_TRADE_CHANNEL_DESCRIPTION2) # I believe that this is the same as above
+table(custData$CUSTOMER_SUB_TRADE_CHANNEL_DESCRIPTION) # Further breakdown of trade
+table(custData$MARKET_DESCRIPTION) # Mostly On-Premise
+table(custData$COLD_DRINK_CHANNEL_DESCRIPTION) # Mostly eating and drinking, some destination
+sort(table(custData$STATE), decreasing = TRUE)
+
+```
+Count of NA values:
+```{r Customer NAs}
+sapply(custData, function(x) sum(is.na(x)))
+# Only 2 NA's in County 
+
+```
+
+
+Let's make some plots
+
+```{r Customer Plots}
+ggplot(custData, aes(CUSTOMER_ACTIVITY_CLUSTER_DESCRIPTION)) + geom_bar() + 
+  coord_flip() + labs(title = "Count of Customer Activity Cluster")
+# Majority of businesses are "Eating and Drinking"
+
+ggplot(custData, aes(CUSTOMER_TRADE_CHANNEL_DESCRIPTION)) + geom_bar() + 
+  coord_flip() + labs(title = "Count of Customer Trade Channel")
+# The two largest trade channels are Quick Service and Full Service Restaurants
+
+ggplot(custData, aes(CUSTOMER_SUB_TRADE_CHANNEL_DESCRIPTION)) + geom_bar() + 
+  coord_flip() + labs(title = "Count of Customer Sub-Trade Channel")
+# There are a TON of sub-trades. May be valuable to a model, but could 
+# need consolidation of sub-trades.
+
+
+ggplot(custData, aes(MARKET_DESCRIPTION)) + geom_bar() + coord_flip() + 
+  labs(title = "Count of Market Description")
+# Vast Majority is FSOP
+
+ggplot(custData, aes(COLD_DRINK_CHANNEL_DESCRIPTION)) + geom_bar() + 
+  coord_flip() + labs(title = "Count of Cold Drink Channel")
+# Majority is eating and drinking, but a good amount of other channels as well
+
+ggplot(custData, aes(STATE)) + geom_bar() + coord_flip() + 
+  labs(title = "Count of State")
+# This is an attempt to visualize where the businesses were, could be fixed
+
+# Trying a lat-long graph
+library(mapview)
+
+ggplot(custData, aes(x = GEO_LONGITUDE, y = GEO_LATITUDE, color = STATE)) + 
+  geom_jitter() + xlim(-130, -70) + ylim(30, 50)
+
+mapview(custData, xcol = "GEO_LONGITUDE", ycol = 
+          "GEO_LATITUDE", crs = 4269, grid = FALSE)
+```
+
+Looking at Sales Data
+
+```{r EDA for Sales Data}
+table(salesData$BEV_CAT_DESC) # Overwhelmingly CORE SPARKLING
+table(salesData$CALORIE_CAT_DESC) # Regular calorie has the edge over low calorie
+table(salesData$PACK_TYPE_DESC)
+table(salesData$PACK_SIZE_SALES_UNIT_DESCRIPTION) # That's a lot of packages
+# This really could be simplified.
+
+# Numeric Data
+summary(salesData$PHYSICAL_VOLUME) # Right Skewness
+summary(salesData$INVOICE_PRICE) # Right Skewness
+summary(salesData$DISCOUNT) # Right Skewness
+summary(salesData$NUM_OF_TRANSACTIONS) # Right Skewness
+# Potentially log-transform
+
+# NA's
+sapply(salesData, function(x) sum(is.na(x)))
+# A lot more NA's here.
+# 73,623 for both Beverage and Calorie Category
+
+
+
+```
+
+
+
+
+Plots for Sales Data
+
+```{r Sales Data Plots}
+ggplot(salesData, aes(BEV_CAT_DESC)) + geom_bar() + coord_flip() + 
+  labs(title = "Count of Beverage Category")
+# Majority is Core-Sparkling, but a good spread outlside of that
+
+ggplot(salesData, aes(CALORIE_CAT_DESC)) + geom_bar() + coord_flip() + 
+  labs(title = "Count of Calorie Category")
+# Majority regular calories, but low calorie has a sizeable chunk
+
+ggplot(salesData, aes(PACK_TYPE_DESC)) + geom_bar() + coord_flip() + 
+  labs(title = "Count of Package Type")
+# Mostly plastic bottles, aluminium cans, and bag in box
+# Potentially an area to consolidate. Lots of plastics.
+
+ggplot(salesData, aes(NUM_OF_TRANSACTIONS)) + geom_histogram()
+
+ggplot(salesData, aes(NUM_OF_TRANSACTIONS)) + 
+  geom_histogram() + 
+  xlim(0, 250) + 
+  ylim(0, 200000) +
+  labs(title = "Distribution of Number of Transactions")
+# A bit of a better look, cutting out the 727 accounts with more than 250 transactions
+  
+
+```
+
+
+```{r}
+
+length(unique(salesData$CUSTOMER_NUMBER_BLINDED)) # 40390 unique customers
+mean(salesData$NUM_OF_TRANSACTIONS)
+
+
+
+
+
+```
+
+
+
+Initial Notes:
+
+Probably will want to rename variables
+Some variables will be able to be dropped
+
+
+There are 53,373 instances of negative physical volume
+Similarly, there are 72,657 instances of zero physical volume
+
+
+There are 132,977 instances of zero invoice price and 4,744 instances of 
+negative invoice price.
+
+Possibly Omit these as damaged goods/returns
+
+
+There are 4,199 instances of a negative discount? I'm unsure what that means.
+
+
+
+# 5. Results and Findings
+
+The results of this EDA give us some interesting findings, but also raises some
+other questions that will need to be addressed. First and foremost, the graphs
+and tables give us an understanding of what the majority classes are and what
+trends follow those classes. We are finding that the majority of customers
+are either quick service or full service restaurants purchasing plastic bottles,
+cans, and bag-in-box products (which serve soda fountains).
+
+Questions arise when looking at the sales data. For example, we have several
+metrics that, from a logical perspective, should not be negative but are indeed 
+negative, including discount and invoice price. Does this mean there is price
+inflation and/or sales back to the client? This would need some more in-depth
+analysis and potential discussions with the client.
+
+
+The next steps of this analysis would be to being looking for correlations and
+other relationships within the data. This would clear a way for us to begin to
+create a model to predict customer success.
+
+
+# 6. Ethical Considerations
+
+In terms of ethical considerations, there are a few areas that are important to 
+keep an eye on. While we do not have customer names or addresses, we do have 
+enough information to determine the businesses we are analyzing. Keeping this
+information confidential and safe is crucial to the security of the client. 
